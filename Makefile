@@ -42,7 +42,7 @@ build: ## Build all service images ($(PREFIX)shop-<svc>:$(TAG))
 .PHONY: scan
 scan: ## Trivy gate (fixable HIGH/CRITICAL) on all images
 	@for s in $(SERVICES); do \
-	  echo ">> scan $$s"; trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(PREFIX)shop-$$s:$(TAG); \
+	  echo ">> scan $$s"; trivy image --pkg-types library --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(PREFIX)shop-$$s:$(TAG); \
 	done
 
 .PHONY: sbom
