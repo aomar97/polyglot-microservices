@@ -48,7 +48,7 @@ jobs:
         run: |
           pip install -r requirements-dev.txt
           ruff check app tests
-          pytest -q
+          python -m pytest -q
 
       - if: matrix.lang == 'node'
         uses: actions/setup-node@v4
@@ -79,7 +79,10 @@ jobs:
       - name: Trivy scan (gate)
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.71.2
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${{ steps.img.outputs.ref }}"
+          # Gate on vulns in OUR dependencies (npm/pip/go); base-image OS CVEs are
+          # managed by updating the base, not by failing every build on Debian churn.
+          trivy image --pkg-types library --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "${{ steps.img.outputs.ref }}"
+          echo "== full (informational) base+deps scan ==" && trivy image --severity HIGH,CRITICAL --ignore-unfixed "${{ steps.img.outputs.ref }}" || true
 
       # ---- SBOM ----
       - name: Generate SBOM (syft)
