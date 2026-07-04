@@ -77,7 +77,7 @@ jobs:
 
       # ---- security gate: fail on fixable HIGH/CRITICAL ----
       - name: Trivy scan (gate)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           image-ref: ${{ steps.img.outputs.ref }}
           severity: HIGH,CRITICAL
@@ -123,21 +123,6 @@ jobs:
           helm template shop deploy/helm/shop -f deploy/helm/shop/values-dev.yaml >/dev/null
           helm template shop deploy/helm/shop -f deploy/helm/shop/values-prod.yaml >/dev/null
 
-  # GitOps promotion: bump the image tag in values so ArgoCD redeploys (main only).
-  bump-gitops:
-    needs: [service, helm]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Pin image tag to this commit
-        run: |
-          sed -i "s|^    tag:.*|    tag: ${GITHUB_SHA}|" deploy/helm/shop/values-dev.yaml
-      - name: Commit
-        run: |
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@users.noreply.github.com"
-          git commit -am "ci: deploy shop @ ${GITHUB_SHA} [skip ci]" || echo "no changes"
-          git push
+  # Image promotion is handled by ArgoCD auto-sync against the pushed image
+  # (see deploy/argocd/). CI never pushes to a protected main branch; a tag bump,
+  # if desired, is done via a PR — keeping branch protection intact.
