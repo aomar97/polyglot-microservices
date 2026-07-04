@@ -1,0 +1,15 @@
+global:
+  image:
+    tag: dev
+
+chaos:
+  failureRate: "0"
+  latencyMs: "0"
+
+serviceMonitor:
+  enabled: false
+
+services:
+  gateway:
+    ingress:
+      host: shop.localtest.me

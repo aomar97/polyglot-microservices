@@ -1,0 +1,143 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # keyless cosign signing via OIDC
+
+jobs:
+  # One matrix entry per service; language-specific lint/test, then a common
+  # build -> scan -> SBOM -> sign -> push pipeline.
+  service:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: catalog, context: services/catalog, lang: go }
+          - { name: orders, context: services/orders, lang: python }
+          - { name: gateway, context: services/gateway, lang: node }
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- lint + test (per language) ----
+      - if: matrix.lang == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - if: matrix.lang == 'go'
+        working-directory: ${{ matrix.context }}
+        run: |
+          go vet ./...
+          go test ./...
+
+      - if: matrix.lang == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - if: matrix.lang == 'python'
+        working-directory: ${{ matrix.context }}
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check app tests
+          pytest -q
+
+      - if: matrix.lang == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - if: matrix.lang == 'node'
+        working-directory: ${{ matrix.context }}
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      # ---- build (load locally so we can scan before pushing) ----
+      - uses: docker/setup-buildx-action@v3
+      - name: Compute image ref
+        id: img
+        run: echo "ref=${REGISTRY}/${{ github.repository_owner }}/shop-${{ matrix.name }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          load: true
+          push: false
+          tags: ${{ steps.img.outputs.ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---- security gate: fail on fixable HIGH/CRITICAL ----
+      - name: Trivy scan (gate)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.img.outputs.ref }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # ---- SBOM ----
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0.17.8
+        with:
+          image: ${{ steps.img.outputs.ref }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.name }}.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.spdx.json
+
+      # ---- push + keyless sign (main only) ----
+      - if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: github.ref == 'refs/heads/main'
+        run: docker push ${{ steps.img.outputs.ref }}
+      - if: github.ref == 'refs/heads/main'
+        uses: sigstore/cosign-installer@v3.7.0
+      - if: github.ref == 'refs/heads/main'
+        run: cosign sign --yes ${{ steps.img.outputs.ref }}
+
+  # Render/lint the Helm chart on every change.
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+      - run: |
+          helm lint deploy/helm/shop
+          helm template shop deploy/helm/shop -f deploy/helm/shop/values-dev.yaml >/dev/null
+          helm template shop deploy/helm/shop -f deploy/helm/shop/values-prod.yaml >/dev/null
+
+  # GitOps promotion: bump the image tag in values so ArgoCD redeploys (main only).
+  bump-gitops:
+    needs: [service, helm]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin image tag to this commit
+        run: |
+          sed -i "s|^    tag:.*|    tag: ${GITHUB_SHA}|" deploy/helm/shop/values-dev.yaml
+      - name: Commit
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git commit -am "ci: deploy shop @ ${GITHUB_SHA} [skip ci]" || echo "no changes"
+          git push

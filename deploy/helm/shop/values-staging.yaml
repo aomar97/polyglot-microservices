@@ -1,0 +1,16 @@
+global:
+  image:
+    tag: staging
+
+services:
+  catalog:
+    replicas: 2
+  orders:
+    replicas: 2
+  gateway:
+    replicas: 2
+    ingress:
+      host: shop.staging.example.com
+
+serviceMonitor:
+  enabled: true

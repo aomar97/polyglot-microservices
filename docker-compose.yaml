@@ -1,0 +1,26 @@
+# Local interaction: `docker compose up --build` then open http://localhost:8080
+services:
+  catalog:
+    build: ./services/catalog
+    image: shop-catalog:dev
+    environment:
+      PORT: "8080"
+
+  orders:
+    build: ./services/orders
+    image: shop-orders:dev
+    environment:
+      PORT: "8080"
+
+  gateway:
+    build: ./services/gateway
+    image: shop-gateway:dev
+    environment:
+      PORT: "8080"
+      CATALOG_URL: http://catalog:8080
+      ORDERS_URL: http://orders:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - catalog
+      - orders

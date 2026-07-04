@@ -1,0 +1,4 @@
+# Optional tracing deps (installed in the image; activated when
+# OTEL_EXPORTER_OTLP_ENDPOINT is set). Kept separate so unit tests stay lean.
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp-proto-http==1.29.0

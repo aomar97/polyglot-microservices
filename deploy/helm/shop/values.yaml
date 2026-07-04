@@ -1,0 +1,58 @@
+global:
+  image:
+    registry: ghcr.io/aomar97 # set to your GHCR owner / ECR repo
+    tag: dev
+    pullPolicy: IfNotPresent
+
+# Each entry becomes a Deployment + Service (templated via a range).
+services:
+  catalog:
+    image: shop-catalog
+    port: 8080
+    replicas: 1
+    env: {}
+  orders:
+    image: shop-orders
+    port: 8080
+    replicas: 1
+    env: {}
+  gateway:
+    image: shop-gateway
+    port: 8080
+    replicas: 1
+    env:
+      CATALOG_URL: http://catalog:8080
+      ORDERS_URL: http://orders:8080
+    ingress:
+      enabled: true
+      className: nginx
+      host: shop.localtest.me
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+# Set by Repo 3 (observability) to ship traces, e.g.
+# http://otel-collector.observability:4318
+otel:
+  endpoint: ""
+
+# Chaos knobs consumed by every service (Repo 4 flips these to trigger rollback).
+chaos:
+  failureRate: "0"
+  latencyMs: "0"
+
+# Prometheus Operator ServiceMonitors — enable once kube-prometheus-stack exists.
+serviceMonitor:
+  enabled: false
+
+# Optional data backends (off by default; show the pattern when wanted).
+postgres:
+  enabled: false
+  password: shop
+redis:
+  enabled: false

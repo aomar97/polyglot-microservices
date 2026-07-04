@@ -1,0 +1,23 @@
+{{- $gw := .Values.services.gateway }}
+{{- if and $gw $gw.ingress $gw.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  labels:
+    app.kubernetes.io/name: gateway
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ $gw.ingress.className | default "nginx" }}
+  rules:
+    - host: {{ $gw.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: {{ $gw.port }}
+{{- end }}

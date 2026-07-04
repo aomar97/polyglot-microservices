@@ -1,0 +1,14 @@
+shop deployed ({{ .Release.Namespace }}).
+
+Services: {{ range $n, $s := .Values.services }}{{ $n }} {{ end }}
+
+{{- $gw := .Values.services.gateway }}
+{{- if and $gw $gw.ingress $gw.ingress.enabled }}
+Gateway ingress: http://{{ $gw.ingress.host }}/   (class: {{ $gw.ingress.className }})
+{{- else }}
+Port-forward the gateway:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/gateway 8080:{{ $gw.port }}
+{{- end }}
+
+Tracing: {{ if .Values.otel.endpoint }}ON -> {{ .Values.otel.endpoint }}{{ else }}off (set otel.endpoint){{ end }}
+Chaos:   failureRate={{ .Values.chaos.failureRate }} latencyMs={{ .Values.chaos.latencyMs }}

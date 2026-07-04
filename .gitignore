@@ -1,0 +1,22 @@
+# build artifacts
+**/dist/
+**/.venv/
+**/venv/
+**/node_modules/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# go build output
+services/catalog/catalog
+
+# supply-chain artifacts
+sbom-*.json
+sbom-*.spdx.json
+
+# local
+.env
+*.log
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,88 @@
+# Same pipeline as .github/workflows/ci.yaml, implemented for GitLab CI.
+# lint/test -> build+scan+SBOM -> sign+push (main) -> helm. Uses the GitLab
+# Container Registry ($CI_REGISTRY_IMAGE) and Docker-in-Docker.
+stages:
+  - lint-test
+  - build-scan
+  - sign-push
+  - verify
+
+# ---- lint + test (one job per language) ----
+catalog:test:
+  stage: lint-test
+  image: golang:1.25
+  script:
+    - cd services/catalog
+    - go vet ./...
+    - go test ./...
+
+orders:test:
+  stage: lint-test
+  image: python:3.11-slim
+  script:
+    - cd services/orders
+    - pip install -r requirements-dev.txt
+    - ruff check app tests
+    - pytest -q
+
+gateway:test:
+  stage: lint-test
+  image: node:22
+  script:
+    - cd services/gateway
+    - npm ci
+    - npm run typecheck
+    - npm test
+
+helm:
+  stage: lint-test
+  image:
+    name: alpine/helm:3.18.4
+    entrypoint: [""]
+  script:
+    - helm lint deploy/helm/shop
+    - helm template shop deploy/helm/shop -f deploy/helm/shop/values-dev.yaml > /dev/null
+
+# ---- build + Trivy gate + SBOM (matrix over services) ----
+build-scan:
+  stage: build-scan
+  image: docker:27
+  services:
+    - docker:27-dind
+  parallel:
+    matrix:
+      - SERVICE: [catalog, orders, gateway]
+  variables:
+    IMAGE: $CI_REGISTRY_IMAGE/shop-$SERVICE:$CI_COMMIT_SHA
+  script:
+    - docker build -t "$IMAGE" "services/$SERVICE"
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.71.2
+      image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE"
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft:1.46.0
+      "$IMAGE" -o spdx-json > "sbom-$SERVICE.spdx.json"
+  artifacts:
+    paths:
+      - sbom-$SERVICE.spdx.json
+
+# ---- push + keyless cosign sign (main only) ----
+sign-push:
+  stage: sign-push
+  image: docker:27
+  services:
+    - docker:27-dind
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  parallel:
+    matrix:
+      - SERVICE: [catalog, orders, gateway]
+  variables:
+    IMAGE: $CI_REGISTRY_IMAGE/shop-$SERVICE:$CI_COMMIT_SHA
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$IMAGE" "services/$SERVICE"
+    - docker push "$IMAGE"
+    - apk add --no-cache cosign
+    - cosign sign --yes "$IMAGE"

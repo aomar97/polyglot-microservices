@@ -1,0 +1,31 @@
+# ArgoCD Application that deploys the shop chart onto the Repo 1 (eks-platform)
+# cluster. Reference it from eks-platform's app-of-apps, or apply directly.
+# Set repoURL + the image registry to your own before use.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shop
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aomar97/polyglot-microservices.git
+    targetRevision: main
+    path: deploy/helm/shop
+    helm:
+      valueFiles:
+        - values-dev.yaml
+      parameters:
+        - name: global.image.registry
+          value: ghcr.io/aomar97
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shop
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
